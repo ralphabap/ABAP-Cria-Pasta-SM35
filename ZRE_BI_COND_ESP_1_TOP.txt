@@ -1,0 +1,78 @@
+*----------------------------------------------------------------------*
+*   INCLUDE ZRE_BI_COND_ESP_1_TOP                                      *
+*----------------------------------------------------------------------*
+
+* Tabelas
+TABLES: vimimv,
+        vzzkopo,
+        tzk02,
+        tzk0a,
+        vimi01,
+        viob40,
+        vzsort,
+        ztec,
+        ztfp,
+        vzzusp.
+
+DATA :
+        wd_inicial LIKE sy-datum,
+        wd_final   LIKE sy-datum.
+
+* tabelas internas
+DATA: BEGIN OF i_vimimv OCCURS 0.
+        INCLUDE STRUCTURE vimimv.
+DATA:   fp,
+        ec,
+        bkond LIKE vzzkopo-bkond,      "Subsídio
+        bkond2 LIKE vzzkopo-bkond,     "Cond dependente
+        bkond3 LIKE vzzkopo-bkond,     "Cond Âncora
+        check,
+        batch,  " 1 - batch1 / 2 - batch2
+      END OF i_vimimv.
+
+DATA: BEGIN OF i_vzzkopo OCCURS 0,
+        skoart LIKE vzzkopo-skoart,
+        dguel_kp LIKE vzzkopo-dguel_kp,
+      END OF i_vzzkopo.
+
+DATA: BEGIN OF i_tzk02 OCCURS 0.
+        INCLUDE STRUCTURE tzk02.
+DATA:   check,
+        dgueltab LIKE vzzusp-dgueltab,
+      END OF i_tzk02.
+
+DATA: BEGIN OF i_smive OCCURS 0,
+        smive LIKE vimimv-smive,
+      END OF i_smive.
+
+DATA i_ztfp LIKE ztfp OCCURS 0 WITH HEADER LINE.
+
+* variáveis
+DATA: lsize TYPE i VALUE 160,
+      cont(8) TYPE n VALUE '00000000'.
+
+
+* constantes
+CONSTANTS: c_ec LIKE vimimv-zzcondp VALUE '0060',
+           c_fp LIKE vimimv-zzcondp VALUE '0130',
+           c_sflart(4) VALUE '0001'.
+
+
+
+* Parâmteros de selecção
+PARAMETERS: p_bukrs LIKE vimimv-bukrs MEMORY ID buk OBLIGATORY,
+            p_swenr LIKE viob01-swenr MEMORY ID weh OBLIGATORY,
+            p_dmibeg LIKE vimimv-dmibeg OBLIGATORY.
+
+* >>> Alteração batch input FOAH - SondaProcwork - 29/11/2010 - Início
+PARAMETERS: p_vis  TYPE c AS CHECKBOX.
+* <<< Alteração batch input FOAH - SondaProcwork - 29/11/2010 - Fim
+
+* Inclusão de Authority Check
+AUTHORITY-CHECK OBJECT 'FI_MIE_BUK'
+   ID 'BUKRS' FIELD p_bukrs
+   ID 'ACTVT' FIELD '03'.
+
+IF sy-subrc NE 0.
+  MESSAGE a024(zfi) WITH p_bukrs.
+ENDIF.

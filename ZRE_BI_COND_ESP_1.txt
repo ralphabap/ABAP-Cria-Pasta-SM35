@@ -1,0 +1,27 @@
+************************************************************************
+* Tratamento da condição especial 1
+************************************************************************
+* Criado por: Hugo Sequeira, Novabase
+*         Em: 07/12/2000
+************************************************************************
+REPORT ZRE_BI_COND_ESP_1 no standard page heading line-size 160
+                         message-id zre.
+
+include zbdcrecx1.
+include ZRE_BI_COND_ESP_1_top.
+include ZRE_BI_COND_ESP_1_f01.
+
+
+start-of-selection.
+
+perform z_prepara_data.
+
+perform select_data.
+
+perform generate_batch.
+
+perform show_list.
+
+* Cabeçalho
+top-of-page.
+perform header.

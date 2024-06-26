@@ -1,0 +1,773 @@
+*----------------------------------------------------------------------*
+*   INCLUDE ZRE_BI_COND_ESP_1_F01                                      *
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Form  select_data
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM select_data.
+  DATA: value LIKE vzzkopo-bkond,
+        sbewart LIKE vzzusp-sbewart.
+
+
+  SELECT * FROM vimimv INTO TABLE i_vimimv
+          WHERE bukrs EQ p_bukrs
+*            and intreno eq 'IV00100000613' " RONIX
+            AND swenr EQ p_swenr
+            AND zzptcon EQ 'X'.
+**            and zzsubsd eq 'X'
+*            and ( ZZCONDP eq c_fp or
+*                  ZZCONDP eq c_ec ).
+
+  LOOP AT i_vimimv.
+
+    IF i_vimimv-dmibeg <= p_dmibeg AND
+       i_vimimv-dmiend > p_dmibeg AND
+       ( i_vimimv-dkuezu > p_dmibeg OR
+         i_vimimv-dkuezu IS INITIAL ) AND
+       i_vimimv-daktv <= p_dmibeg.
+
+    ELSE.
+
+      DELETE i_vimimv.
+      CONTINUE.
+
+    ENDIF.
+
+    IF i_vimimv-zzcondp EQ c_fp.
+
+      i_vimimv-fp = 'X'.
+
+    ELSEIF  i_vimimv-zzcondp EQ c_ec.
+
+      i_vimimv-ec = 'X'.
+
+    ENDIF.
+
+    SELECT * FROM vzzkopo UP TO 1 ROWS
+            WHERE bukrs EQ p_bukrs
+                  AND sanlf EQ '410'
+                  AND rkey1 EQ i_vimimv-smive
+                  AND skoart EQ i_vimimv-zzcondp
+                  AND dguel_kp LE p_dmibeg
+                ORDER BY dguel_kp DESCENDING.
+
+
+    ENDSELECT.
+
+**    if vzzkopo-jnullkon eq '1'.
+*
+*      delete i_vimimv.
+*      continue.
+*
+*    endif.
+
+    i_vimimv-bkond2 = vzzkopo-bkond.
+
+    SELECT * FROM vzzkopo UP TO 1 ROWS
+            WHERE bukrs EQ p_bukrs
+                  AND sanlf EQ '410'
+                  AND rkey1 EQ i_vimimv-smive
+                  AND skoart EQ i_vimimv-zzconan
+                  AND dguel_kp LE p_dmibeg
+                ORDER BY dguel_kp DESCENDING.
+
+
+    ENDSELECT.
+
+*    if vzzkopo-jnullkon eq '1'.
+*
+*      delete i_vimimv.
+*      continue.
+*
+*    endif.
+
+    CLEAR value.
+
+    i_vimimv-bkond3 = vzzkopo-bkond.
+
+    value = ( vzzkopo-bkond * i_vimimv-zzvpcon / 100 ).
+
+* RCONDE - Inclusao de cond especial parte 2 em 220101
+    IF    value < i_vimimv-bkond2.
+
+      IF i_vimimv-zzsubsd EQ 'X'.
+
+        sbewart = i_vimimv-zzcondp.
+        SHIFT sbewart LEFT.
+        sbewart+3(1) = '0'.
+        UNPACK sbewart TO sbewart.
+
+        SELECT * FROM vzzusp UP TO 1 ROWS
+                WHERE snumobj EQ 'VI'
+                  AND sobjekt EQ i_vimimv-intreno
+                  AND dgueltab LE p_dmibeg
+                  AND sbewart EQ sbewart
+                ORDER BY dgueltab DESCENDING.
+
+        ENDSELECT.
+
+        IF vzzusp-prozteil IS INITIAL.
+          CLEAR i_vimimv-check.
+        ELSE.
+          i_vimimv-check = 'X'.
+        ENDIF.
+        i_vimimv-bkond = i_vimimv-bkond2 - value.
+        i_vimimv-batch = '1'.
+
+      ELSE.
+        i_vimimv-bkond = value.
+        i_vimimv-batch = '2'.
+      ENDIF.
+
+    ELSEIF value > i_vimimv-bkond2.
+
+      i_vimimv-bkond = value.
+      i_vimimv-batch = '2'.
+
+    ELSEIF value EQ i_vimimv-bkond2.
+
+      DELETE i_vimimv.
+      CONTINUE.
+
+    ENDIF.
+
+* RCONDE - Inclusao de cond especial parte 2 em 220101
+
+
+
+*    if i_vimimv-bkond2 > value.
+*      i_vimimv-bkond = i_vimimv-bkond2 - value.
+*    else.
+*
+*      delete i_vimimv.
+*      continue.
+*
+*    endif.
+
+    MODIFY i_vimimv.
+
+  ENDLOOP.
+
+ENDFORM.                    " select_data
+*&---------------------------------------------------------------------*
+*&      Form  generate_batch
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM generate_batch.
+  DATA: page TYPE i,
+        line(2),
+        field(18),
+        value(18).
+
+  PERFORM open_group.
+
+  LOOP AT i_vimimv.
+    IF i_vimimv-batch EQ '1'.
+      PERFORM find_line USING page line.
+
+      SUBTRACT 1 FROM page.
+
+      PERFORM bdc_dynpro      USING 'SAPLFV7V' '0100'.
+      PERFORM bdc_field       USING 'BDC_OKCODE'
+                                    '=NBLD'.
+      PERFORM bdc_field       USING 'VIMIMV-BUKRS'
+                                    i_vimimv-bukrs.
+      PERFORM bdc_field       USING 'VIMIMV-SMIVE'
+                                    i_vimimv-smive.
+      PERFORM bdc_dynpro      USING 'SAPLFV7V' '0150'.
+      PERFORM bdc_field       USING 'BDC_OKCODE'
+                                    '=KOND'.
+      PERFORM bdc_dynpro      USING 'SAPLFV7V' '0150'.
+      PERFORM bdc_field       USING 'BDC_OKCODE'
+                                    '=ZUSP'.
+
+      PERFORM bdc_dynpro      USING 'SAPLFV30' '0200'.
+
+      DO page TIMES.
+
+        PERFORM bdc_field       USING 'BDC_OKCODE'
+                                      '=P+'.
+        PERFORM bdc_dynpro      USING 'SAPLFV30' '0200'.
+
+
+      ENDDO.
+
+      PERFORM bdc_field       USING 'BDC_OKCODE'
+                                    '/11'.
+
+      CONCATENATE 'VZZUSP-BZUBETR(' line ')' INTO field.
+
+      WRITE i_vimimv-bkond TO value.
+
+      PERFORM bdc_field       USING field
+                                    value.
+
+* RCONDE - Inclusao de DATA em 31/01/2001
+      DATA : lc_data(10).
+      CONCATENATE 'VZZUSP-DGUELBIS(' line ')' INTO field.
+
+      PERFORM z_transf_data USING i_vimimv-zzcondp wd_final
+                         CHANGING lc_data.
+
+      PERFORM bdc_field       USING field
+                                    lc_data.
+* RCONDE - Inclusao de DATA em 31/01/2001
+
+
+      IF NOT i_vimimv-check IS INITIAL.
+        CONCATENATE 'VZZUSP-PROZTEIL(' line ')' INTO field.
+        PERFORM bdc_field       USING field
+                                      ' '.
+      ENDIF.
+
+*      PERFORM bdc_dynpro      USING 'SAPLFV7V' '0150'.
+*      PERFORM bdc_field       USING 'BDC_OKCODE'
+*                                    '/11'.
+*
+*      PERFORM bdc_transaction USING 'FOV2'.
+    ELSE.
+      PERFORM generate_batch2.     " FOAH
+
+* Alteraçao PR - 22/07/2010
+
+*      PERFORM generate_batch3.     " Limpa pela FOV2
+
+* Fim alteraçao PR - 22/07/2010
+
+    ENDIF.
+  ENDLOOP.
+
+  PERFORM close_group.
+
+ENDFORM.                    " generate_batch
+*&---------------------------------------------------------------------*
+*&      Form  find_line
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_PAGE  text
+*      -->P_LINE  text
+*----------------------------------------------------------------------*
+FORM find_line USING    p_page
+                        p_line.
+
+  DATA: l TYPE p,
+        sbewart LIKE vzzusp-sbewart.
+
+  SELECT DISTINCT skoart
+            FROM vzzkopo INTO i_vzzkopo
+                        WHERE bukrs EQ p_bukrs
+                          AND sanlf EQ '410'
+                          AND rkey1 EQ i_vimimv-smive
+                          AND rkey2 EQ p_swenr.
+*                          and dguel_kp <= p_dmibeg.
+*                          and bkond > 0.
+
+    SELECT MIN( dguel_kp )
+             FROM vzzkopo INTO i_vzzkopo-dguel_kp
+                     WHERE bukrs EQ p_bukrs
+                       AND sanlf EQ '410'
+                       AND rkey1 EQ i_vimimv-smive
+                       AND rkey2 EQ p_swenr
+                       AND skoart EQ i_vzzkopo-skoart
+                       AND jnullkon NE '1'.
+
+    SELECT SINGLE * FROM tzk02 WHERE rantyp EQ '3'
+              AND skogrp EQ '1'
+              AND skoart EQ i_vzzkopo-skoart.
+
+*    if vzzkopo-bkond > 0 or tzk02-JAUSBL eq ' '.
+
+    IF NOT i_vzzkopo-dguel_kp IS INITIAL.
+      APPEND i_vzzkopo.
+    ELSE.
+      CLEAR i_vzzkopo.
+    ENDIF.
+*    endif.
+
+  ENDSELECT.
+
+  LOOP AT i_vzzkopo.
+
+    SELECT * FROM vzzkopo UP TO 1 ROWS
+            WHERE bukrs EQ p_bukrs
+                  AND sanlf EQ '410'
+                  AND rkey1 EQ i_vimimv-smive
+                  AND skoart EQ i_vzzkopo-skoart
+                  AND dguel_kp <= p_dmibeg
+                ORDER BY dguel_kp DESCENDING.
+
+
+    ENDSELECT.
+
+    IF vzzkopo-jnullkon EQ '1'.
+
+*      delete i_vzzkopo.
+      CONTINUE.
+
+    ENDIF.
+
+
+  ENDLOOP.
+
+*  describe table i_vzzkopo lines l.
+
+
+  SELECT * FROM tzk02 INTO TABLE i_tzk02
+            FOR ALL ENTRIES IN i_vzzkopo
+          WHERE rantyp EQ '3'
+            AND skogrp EQ '1'
+            AND skoart EQ i_vzzkopo-skoart.
+
+  LOOP AT i_tzk02.
+
+    sbewart = i_tzk02-skoart.
+
+    SHIFT sbewart LEFT.
+
+    sbewart+3(1) = 0.
+
+    CLEAR vzzusp.
+
+    SELECT * FROM vzzusp UP TO 1 ROWS
+                         WHERE snumobj EQ 'VI'
+                           AND sobjekt EQ i_vimimv-intreno
+                           AND sbewart EQ sbewart
+*                           and dgueltab <= p_dmibeg
+                         ORDER BY dgueltab DESCENDING.
+    ENDSELECT.
+
+    READ TABLE i_vzzkopo WITH KEY skoart = i_tzk02-skoart.
+    IF NOT vzzusp-bzubetr IS INITIAL OR
+       NOT vzzusp-prozteil IS INITIAL.
+      i_tzk02-check = 'X'.
+    ENDIF.
+    i_tzk02-dgueltab = i_vzzkopo-dguel_kp.
+    MODIFY i_tzk02.
+  ENDLOOP.
+
+*  sort i_TZK02 by check descending NHIER NFOLGE.
+  SORT i_tzk02 BY check DESCENDING dgueltab nhier nfolge .
+
+  READ TABLE i_tzk02 WITH KEY skoart = i_vimimv-zzcondp.
+
+  l = sy-tabix.
+
+  p_page = l / 10.
+  p_line = l MOD 10.
+
+ENDFORM.                                                    " find_line
+*&---------------------------------------------------------------------*
+*&      Form  show_list
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM   show_list.
+  TYPE-POOLS: icon.
+  DATA: value LIKE i_vimimv-bkond,
+        xkoartm LIKE tzk0a-xkoartm.
+  DATA : lcr_tab LIKE vzzkopo-bkond.
+
+  FORMAT COLOR COL_NORMAL.
+
+  LOOP AT i_vimimv.
+
+    value = i_vimimv-bkond2 - i_vimimv-bkond.
+
+    SELECT SINGLE xkoartm FROM tzk0a INTO xkoartm
+                               WHERE spras EQ 'PT'
+                                 AND rantyp EQ '3'
+                                 AND skoart EQ i_vimimv-zzconan.
+
+
+    SELECT SINGLE * FROM tzk0a WHERE spras EQ 'PT'
+                                 AND rantyp EQ '3'
+                                 AND skoart EQ i_vimimv-zzcondp.
+
+    WRITE:/3 i_vimimv-smenr,i_vimimv-smive,
+            i_vimimv-zznmfan, xkoartm, tzk0a-xkoartm, 137 tzk0a-xkoartm,
+            AT lsize ' '.
+    IF i_vimimv-batch EQ '1'.
+      WRITE:/63 i_vimimv-bkond3, i_vimimv-bkond2, 105 i_vimimv-zzvpcon,
+                i_vimimv-bkond, value.
+
+      IF i_vimimv-zzsubsd EQ 'X'.
+        WRITE:  icon_usergroup AS ICON.
+      ELSE.
+        WRITE: icon_position_hr AS ICON.
+      ENDIF.
+
+      WRITE:    AT lsize ' '.
+
+    ELSE.
+
+      WRITE:/63 i_vimimv-bkond3, i_vimimv-bkond2, 105 i_vimimv-zzvpcon,
+               lcr_tab, i_vimimv-bkond.
+
+      IF i_vimimv-zzsubsd EQ 'X'.
+        WRITE:  icon_usergroup AS ICON.
+      ELSE.
+        WRITE: icon_position_hr AS ICON.
+      ENDIF.
+
+      WRITE:    AT lsize ' '.
+
+    ENDIF.
+    SKIP 1.
+
+  ENDLOOP.
+
+  WRITE:/(lsize) sy-uline.
+
+ENDFORM.                                                    " show_list
+*&---------------------------------------------------------------------*
+*&      Form  header
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM header.
+
+  FORMAT COLOR COL_HEADING.
+  WRITE:/ 'Empresa:', p_bukrs,30 'UE:', p_swenr,
+          50 'Data Ajuste:', p_dmibeg, 90 sy-uname, sy-datum, sy-uzeit,
+          AT lsize ' '.
+  WRITE:/(lsize) sy-uline.
+  WRITE:/3 'UL', 12 'Contrato', 26 'Nome Fantasia',
+           67 'Cond. Âncora',
+           86 'Cond. Dependente', 107 '%', 120 'Subsídio',
+           139 'Novo Valor', AT lsize ' '.
+  WRITE:/(lsize) sy-uline.
+
+ENDFORM.                                                    " header
+*&---------------------------------------------------------------------*
+*&      Form  generate_batch2
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM generate_batch2.
+  DATA: xident(16),
+        value(18),
+        lc_date(10),
+* >>> Alteração batch input FOAH - SondaProcwork - 29/11/2010 - Início
+        lc_date_d     TYPE sy-datum.
+
+* Se esta opção estiver marcada então a pasta na SM35 deve ser executada
+* visivelmente pelo usuário
+  IF p_vis IS INITIAL.
+
+    PERFORM bdc_dynpro      USING 'RFVIMACO'     '1000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'   '=ONLI'.
+    PERFORM bdc_field       USING 'P_BUKRS'      p_bukrs.
+    PERFORM bdc_field       USING 'SO_SMIVE-LOW' i_vimimv-smive.
+
+    ADD 1 TO cont.
+
+    CONCATENATE sy-datum+2(2) sy-datum+4(2) sy-datum+6(2) sy-uzeit
+                cont+4(4) INTO xident.
+
+    PERFORM bdc_field       USING 'P_XIDENT'     xident.
+
+    PERFORM z_transf_data USING i_vimimv-zzcondp wd_inicial
+                       CHANGING lc_date.
+
+    PERFORM bdc_field       USING 'P_DGUEAB'     lc_date.
+    PERFORM bdc_field       USING 'P_ADJMV'      'X'.
+    PERFORM bdc_field       USING 'P_ADSRME'     'X'.
+    PERFORM bdc_field       USING 'P_ADSRAL'     ' '.
+    PERFORM bdc_field       USING 'P_SKOART'     i_vimimv-zzcondp.
+
+    CLEAR lc_date_d.
+    CONCATENATE lc_date+6(4)
+                lc_date+3(2)
+                lc_date(2)
+           INTO lc_date_d.
+
+    lc_date_d = lc_date_d - 1.
+
+    CONCATENATE lc_date_d+6(2)
+                '.'
+                lc_date_d+4(2)
+                '.'
+                lc_date_d(4)
+           INTO lc_date.
+
+    PERFORM bdc_field       USING 'P_DZUBIS'     lc_date.
+
+    PERFORM bdc_field       USING 'P_JMEPRZ'     'X'.
+    PERFORM bdc_field       USING 'P_CUKEY'      'BRL'.
+    PERFORM bdc_field       USING 'P_ARKEY'      'm2'.
+
+    WRITE i_vimimv-bkond TO value CURRENCY 'BRL'.
+
+    PERFORM bdc_field       USING 'P_NEU_GS'     value.
+
+    PERFORM bdc_field       USING 'P_JKOPO'      'X'.
+    PERFORM bdc_field       USING 'P_PRTLEV'     '6'.
+
+    PERFORM bdc_dynpro      USING 'SAPLSPRI'     '0100'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'   '/00'.
+    PERFORM bdc_field       USING 'PRI_PARAMS-PDEST'   'DEFAULT'.
+
+    PERFORM bdc_dynpro      USING 'SAPLSPRI'     '0100'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'   '/EBCK'.
+
+    PERFORM bdc_dynpro      USING 'SAPMSSY0'           '0120'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'         '=PREV'.
+
+    PERFORM bdc_dynpro      USING 'RFVIMACO'     '1000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'   '/EENDE'.
+
+  ELSE.
+
+* <<< Alteração batch input FOAH - SondaProcwork - 29/11/2010 - Fim
+
+    PERFORM bdc_dynpro      USING 'RFVIMACO' '2000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '=TS2'.
+
+* Alteração PR - 22/07/2010
+
+    ADD 1 TO cont.
+
+    CONCATENATE sy-datum+2(2) sy-datum+4(2) sy-datum+6(2) sy-uzeit
+   cont+4(4) INTO xident.
+
+* Fim Alteraçao PR - 22/07/2010
+
+    PERFORM bdc_field       USING 'P_XIDENT'
+                                  xident.
+* RCONDE - Alteracao em 31012001
+*    WRITE  p_dmibeg TO LC_DATE.
+    PERFORM z_transf_data USING i_vimimv-zzcondp wd_inicial
+                       CHANGING lc_date.
+
+    PERFORM bdc_field       USING 'P_DGUEAB'
+                                  lc_date.
+    PERFORM bdc_field       USING 'P_BUKRS'
+                                  p_bukrs.
+    PERFORM bdc_field       USING 'SO_SWENR-LOW'
+                                  p_swenr.
+    PERFORM bdc_field       USING 'SO_SMIVE-LOW'
+                                  i_vimimv-smive.
+
+    PERFORM bdc_dynpro      USING 'RFVIMACO' '2000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '=TS4'.
+    PERFORM bdc_field       USING 'P_SKOART'
+                                  i_vimimv-zzcondp.
+    PERFORM bdc_dynpro      USING 'RFVIMACO' '2000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '=VLTCTD'.
+
+    WRITE i_vimimv-bkond TO value CURRENCY 'BRL'.
+
+* Alteracao em 29/01/2001 solicitado por Miguel
+*    perform bdc_field       using 'RFVIVALUES-BERH_GS'
+    PERFORM bdc_field       USING 'RFVIVALUES-BNEU_GS'
+                                   value.
+
+    PERFORM bdc_field       USING 'RFVIVALUES-CURRKEY'
+                                  'BRL'.
+    PERFORM bdc_dynpro      USING 'RFVIMACO' '2000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '=XONLI'.
+
+    PERFORM bdc_dynpro      USING 'SAPMSSY0' '0120'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '=PREV'.
+    PERFORM bdc_dynpro      USING 'RFVIMACO' '2000'.
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '/EE'.
+
+* >>> Alteração batch input FOAH - SondaProcwork - 29/11/2010 - Início
+  ENDIF.
+* <<< Alteração batch input FOAH - SondaProcwork - 29/11/2010 - Fim
+
+  PERFORM bdc_transaction USING 'FOAH'.
+
+ENDFORM.                    " generate_batch2
+
+*&---------------------------------------------------------------------*
+*&      Form  generate_batch3
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM generate_batch3.
+  DATA: page TYPE i,
+        line(2),
+        field(18),
+        value(18).
+
+  PERFORM find_line USING page line.
+
+  SUBTRACT 1 FROM page.
+
+  PERFORM bdc_dynpro      USING 'SAPLFV7V' '0100'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'
+                                '=NBLD'.
+  PERFORM bdc_field       USING 'VIMIMV-BUKRS'
+                                i_vimimv-bukrs.
+  PERFORM bdc_field       USING 'VIMIMV-SMIVE'
+                                i_vimimv-smive.
+  PERFORM bdc_dynpro      USING 'SAPLFV7V' '0150'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'
+                                '=KOND'.
+  PERFORM bdc_dynpro      USING 'SAPLFV7V' '0150'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'
+                                '=ZUSP'.
+
+  PERFORM bdc_dynpro      USING 'SAPLFV30' '0200'.
+
+  DO page TIMES.
+
+    PERFORM bdc_field       USING 'BDC_OKCODE'
+                                  '=P+'.
+    PERFORM bdc_dynpro      USING 'SAPLFV30' '0200'.
+
+
+  ENDDO.
+
+  PERFORM bdc_field       USING 'BDC_OKCODE'
+                                '/11'.
+
+  CONCATENATE 'VZZUSP-BZUBETR(' line ')' INTO field.
+
+  WRITE '0' TO value.
+
+  PERFORM bdc_field       USING field
+                                value.
+
+* RCONDE - Inclusao de DATA em 31/01/2001
+  DATA : lc_data(10).
+  CONCATENATE 'VZZUSP-DGUELBIS(' line ')' INTO field.
+
+  PERFORM z_transf_data USING i_vimimv-zzcondp wd_final
+                     CHANGING lc_data.
+
+  PERFORM bdc_field       USING field
+                                lc_data.
+* RCONDE - Inclusao de DATA em 31/01/2001
+
+
+  IF NOT i_vimimv-check IS INITIAL.
+    CONCATENATE 'VZZUSP-PROZTEIL(' line ')' INTO field.
+    PERFORM bdc_field       USING field
+                                  ' '.
+  ENDIF.
+
+  PERFORM bdc_dynpro      USING 'SAPLFV7V' '0150'.
+  PERFORM bdc_field       USING 'BDC_OKCODE'
+                                '/11'.
+
+  PERFORM bdc_transaction USING 'FOV2'.
+
+ENDFORM.                    " generate_batch3
+*&---------------------------------------------------------------------*
+*&      Form  z_transf_data
+*&---------------------------------------------------------------------*
+*
+*----------------------------------------------------------------------*
+*      -->P_P_SKOART  text
+*      -->P_DT        SY-DATUM
+*      <--P_DATA      text
+*----------------------------------------------------------------------*
+FORM z_transf_data USING    p_skoart
+                            p_dt
+                   CHANGING p_data.
+
+  DATA : li_month LIKE sy-tabix VALUE '-1',
+         lc_data(10),
+         ld_data LIKE sy-datum,
+         lc_zzmescond LIKE zret_vbewacomp-zzmescond,
+         sbewart LIKE vzzusp-sbewart.
+
+* Tratamento de SKOART do HUGO
+  sbewart = p_skoart.
+  SHIFT sbewart LEFT.
+  sbewart+3(1) = 0.
+  UNPACK sbewart TO sbewart.
+
+
+  SELECT SINGLE zzmescond
+    FROM zret_vbewacomp
+    INTO lc_zzmescond
+   WHERE bukrs EQ i_vimimv-bukrs
+     AND vbewa EQ sbewart.
+
+  IF sy-subrc EQ 0.
+    IF lc_zzmescond EQ '1'.
+
+      CALL FUNCTION 'RE_ADD_MONTH_TO_DATE'
+           EXPORTING
+                months  = li_month
+                olddate = p_dt  " wd_final OU p_dmibeg
+           IMPORTING
+                newdate = ld_data.
+
+      IF ld_data+6(2) NE '01'.
+* Ultimo dia do mes desta data
+        CALL FUNCTION 'RP_LAST_DAY_OF_MONTHS'
+             EXPORTING
+                  day_in            = ld_data
+             IMPORTING
+                  last_day_of_month = ld_data
+             EXCEPTIONS
+                  day_in_no_date    = 1
+                  OTHERS            = 2.
+      ENDIF.
+
+      WRITE ld_data TO lc_data.
+      p_data = lc_data.
+    ELSE.
+      WRITE p_dt TO lc_data.
+      p_data = lc_data.
+    ENDIF.
+  ELSE.
+    WRITE p_dt TO lc_data.
+    p_data = lc_data.
+  ENDIF.
+
+
+
+ENDFORM.                    " z_transf_data
+*&---------------------------------------------------------------------*
+*&      Form  z_prepara_data
+*&---------------------------------------------------------------------*
+*     Cria sobre uma data
+* 1 - Primeiro dia do mes  WD_INICIAL
+* 2 - Ultimo dia do mes    WD_FINAL
+*----------------------------------------------------------------------*
+FORM z_prepara_data.
+* 1 - Primeiro dia do mes  WD_INICIAL
+  CONCATENATE p_dmibeg+0(6)
+              '01'
+        INTO wd_inicial.
+
+* 2 - Ultimo dia do mes    WD_FINAL
+  CALL FUNCTION 'RP_LAST_DAY_OF_MONTHS'
+       EXPORTING
+            day_in            = p_dmibeg
+       IMPORTING
+            last_day_of_month = wd_final
+       EXCEPTIONS
+            day_in_no_date    = 1
+            OTHERS            = 2.
+ENDFORM.                    " z_prepara_data
